@@ -10,6 +10,8 @@ import {
   loadStateFromFirestore,
 } from "../state/StateRestoration";
 import { useAuth } from "../utils/AuthContext";
+import { storage } from "../firebaseConfig"; // Assuming storage is exported from firebaseConfig
+import { ref, deleteObject } from "firebase/storage";
 
 const Soundboard = () => {
   const [soundGroups, setSoundGroups] = useState([]);
@@ -22,42 +24,42 @@ const Soundboard = () => {
   // You can access user ID using currentUser.uid
   const userId = currentUser && currentUser.uid;
 
-// In Soundboard.js, adjusted useEffect for loading
+  // In Soundboard.js, adjusted useEffect for loading
 
-useEffect(() => {
-  if (currentUser) {
-    const userId = currentUser.uid;
-    loadStateFromFirestore(userId)
-      .then((loadedData) => {
-        if (!loadedData) {
-          console.log('No data returned from Firestore');
-          return;
-        }
-        
-        // Ensure loadedData is an array, as expected.
-        if(Array.isArray(loadedData)) {
-          const groupsWithHowls = loadedData.map((group) => ({
-            ...group,
-            sounds: group.sounds.map((sound) => ({
-              ...sound,
-              howl: new Howl({
-                src: [sound.url],
-                volume: sound.volume,
-                // Other Howl properties as needed
-              }),
-            })),
-          }));
-          setSoundGroups(groupsWithHowls);
-        } else {
-          // If data is not as expected, log or handle accordingly
-          console.warn('Unexpected data structure:', loadedData);
-        }
-      })
-      .catch((error) => {
-        console.error('Error loading state from Firestore:', error);
-      });
-  }
-}, [currentUser]);
+  useEffect(() => {
+    if (currentUser) {
+      const userId = currentUser.uid;
+      loadStateFromFirestore(userId)
+        .then((loadedData) => {
+          if (!loadedData) {
+            console.log("No data returned from Firestore");
+            return;
+          }
+
+          // Ensure loadedData is an array, as expected.
+          if (Array.isArray(loadedData)) {
+            const groupsWithHowls = loadedData.map((group) => ({
+              ...group,
+              sounds: group.sounds.map((sound) => ({
+                ...sound,
+                howl: new Howl({
+                  src: [sound.url],
+                  volume: sound.volume,
+                  // Other Howl properties as needed
+                }),
+              })),
+            }));
+            setSoundGroups(groupsWithHowls);
+          } else {
+            // If data is not as expected, log or handle accordingly
+            console.warn("Unexpected data structure:", loadedData);
+          }
+        })
+        .catch((error) => {
+          console.error("Error loading state from Firestore:", error);
+        });
+    }
+  }, [currentUser]);
 
   // Save state when `soundGroups` or `globalVolume` changes
   useEffect(() => {
@@ -158,6 +160,19 @@ useEffect(() => {
 
   // Remove a sound from a specified sound group
   const removeSoundFromGroup = (groupIndex, soundId) => {
+    const group = soundGroups[groupIndex];
+    const sound = group.sounds.find((s) => s.id === soundId);
+    if (sound) {
+      const soundRef = ref(storage, sound.url); // sound.url should be the path to the file in storage
+      deleteObject(soundRef)
+        .then(() => {
+          console.log(`File deleted successfully: ${sound.url}`);
+        })
+        .catch((error) => {
+          console.error("Error removing file:", error);
+        });
+    }
+
     setSoundGroups((prevGroups) =>
       prevGroups.map((group, idx) => {
         if (idx === groupIndex) {
@@ -221,6 +236,14 @@ useEffect(() => {
     setSelectedGroupIndex(index); // Store the index of the selected group
   };
 
+  const renameSoundGroup = (groupIndex, newName) => {
+    setSoundGroups((currentGroups) =>
+      currentGroups.map((group, index) =>
+        index === groupIndex ? { ...group, name: newName } : group
+      )
+    );
+  };
+
   const removeGroup = (groupId) => {
     // Find the group to be removed
     const groupToRemove = soundGroups.find((group) => group.id === groupId);
@@ -228,6 +251,10 @@ useEffect(() => {
     if (groupToRemove) {
       // Stop all sounds in that group if they are playing
       groupToRemove.sounds.forEach((sound) => {
+        const soundRef = ref(storage, sound.url);
+        deleteObject(soundRef)
+          .then(() => console.log(`Deleted sound file: ${sound.url}`))
+          .catch((error) => console.error("Error deleting sound file:", error));
         if (sound.howl.playing()) {
           sound.howl.stop();
         }
@@ -266,6 +293,7 @@ useEffect(() => {
             group={group}
             onPlayPauseClick={() => togglePlayPauseFromGroup(group)}
             onSettingsClick={() => handleSettingsClick(index)}
+            onRenameGroup={(newName) => renameSoundGroup(index, newName)}
             onRemoveGroup={() => removeGroup(group.id)}
           />
         ))}
