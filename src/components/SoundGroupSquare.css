@@ -1,0 +1,58 @@
+.sound-group-square {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    width: 200px; /* Adjust size as needed */
+    height: 200px; /* Adjust size as needed */
+    background-color: #455a64; /* Adjust color as needed */
+    border-radius: 10px;
+    margin: 10px;
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+  
+  .sound-group-square-title {
+    color: #fff;
+    font-size: 1.5em;
+    z-index: 10;
+  }
+  
+  .sound-group-square button {
+    position: absolute;
+    width: 50px;
+    height: 50px;
+    border: none;
+    border-radius: 50%;
+    background-color: #78909c; /* Adjust color as needed */
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.3s;
+  }
+  
+  .sound-group-square button:hover {
+    background-color: #546e7a; /* Adjust color as needed */
+  }
+  
+  .sound-group-square button:nth-child(2) {
+    /* Settings Button */
+    top: 10px;
+    right: 10px;
+  }
+  
+  .sound-group-square button:nth-child(3) {
+    /* Remove Button */
+    bottom: 10px;
+    right: 10px;
+  }
+  
+  .sound-group-square button:nth-child(1) {
+    /* Play/Pause Button */
+    width: 80px;  /* Make it bigger */
+    height: 80px;  /* Make it bigger */
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+  }

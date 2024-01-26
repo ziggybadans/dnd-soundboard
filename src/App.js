@@ -1,23 +1,19 @@
 import logo from './logo.svg';
 import './App.css';
+import Soundboard from './components/Soundboard';
 
 function App() {
   return (
     <div className="App">
       <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
+        <h1>D&D Soundboard</h1>
       </header>
+      <main className='App-content'>
+        <Soundboard/>
+      </main>
+      <footer className='App-footer'>
+        <p>Created by Ziggy Badans</p>
+      </footer>
     </div>
   );
 }
