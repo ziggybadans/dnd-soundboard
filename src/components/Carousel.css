@@ -1,0 +1,17 @@
+/* Carousel.css */
+.carousel-container {
+    display: flex;
+    overflow-x: auto;
+    gap: 10px; /* Adjust based on your design preference */
+    padding: 10px;
+  }
+  
+  .carousel-item {
+    flex: 0 0 auto;
+    width: 120px; /* Adjust based on your design preference */
+    padding: 10px;
+    background-color: #ddd;
+    text-align: center;
+    cursor: pointer;
+    border-radius: 5px;
+  }

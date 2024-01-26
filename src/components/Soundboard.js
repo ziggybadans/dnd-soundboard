@@ -12,11 +12,13 @@ import {
 import { useAuth } from "../utils/AuthContext";
 import { storage } from "../firebaseConfig"; // Assuming storage is exported from firebaseConfig
 import { ref, deleteObject } from "firebase/storage";
+import Carousel from "./Carousel.js";
 
 const Soundboard = () => {
   const [soundGroups, setSoundGroups] = useState([]);
   const [selectedGroupIndex, setSelectedGroupIndex] = useState(null);
   const [currentlyPlaying, setCurrentlyPlaying] = useState({});
+  const [categories, setCategories] = useState(['Music', 'Sound Effects', 'Ambience']);
 
   const [globalVolume, setGlobalVolume] = useState(1); // Default global volume
 
@@ -50,6 +52,9 @@ const Soundboard = () => {
               })),
             }));
             setSoundGroups(groupsWithHowls);
+
+            const loadedCategories = [...new Set(groupsWithHowls.map(group => group.category))];
+            setCategories(loadedCategories);
           } else {
             // If data is not as expected, log or handle accordingly
             console.warn("Unexpected data structure:", loadedData);
@@ -86,7 +91,7 @@ const Soundboard = () => {
   };
 
   // Add a new sound group
-  const addSoundGroup = () => {
+  const addSoundGroup = (category) => {
     // Create a new group with a unique ID and a default name
     const newGroup = {
       id: uuidv4(),
@@ -94,6 +99,7 @@ const Soundboard = () => {
       sounds: [], // Initial sounds inside the group
       groupVolume: 1, // Default group volume
       fadeDuration: 1000, // Default fade duration
+      category: category,
     };
     setSoundGroups([...soundGroups, newGroup]);
   };
@@ -269,6 +275,40 @@ const Soundboard = () => {
     }
   };
 
+  const groupByCategory = (groups) => {
+    return groups.reduce((acc, group) => {
+      if (!acc[group.category]) {
+        acc[group.category] = [];
+      }
+      acc[group.category].push(group);
+      return acc;
+    }, {});
+  };
+
+  const handleCategorySelect = (category) => {
+    // Implement logic to add a new sound group to the selected category
+    addSoundGroup(category);
+  };
+
+  const handleAddCategory = (newCategoryName) => {
+    // Add the new category to the list of categories if not already present
+    if (!categories.includes(newCategoryName)) {
+      setCategories([...categories, newCategoryName]);
+    }
+  };
+
+  const handleRemoveCategory = (categoryToRemove) => {
+    // Optional: Confirm with the user that they want to remove the category
+    if (window.confirm(`Are you sure you want to remove the category "${categoryToRemove}" and all associated sound groups?`)) {
+      // Remove the category from the categories array
+      setCategories(categories.filter(category => category !== categoryToRemove));
+      
+      // Remove or handle sound groups associated with the removed category
+      // For instance, removing all sound groups in this category:
+      setSoundGroups(soundGroups.filter(group => group.category !== categoryToRemove));
+    }
+  };
+
   return (
     <div className="soundboard">
       <div className="global-controls">
@@ -284,20 +324,30 @@ const Soundboard = () => {
           />
         </div>
       </div>
-      <button onClick={addSoundGroup}>Add Sound Group</button>
+      <Carousel
+        categories={categories}
+        onCategorySelect={handleCategorySelect}
+        onAddCategory={handleAddCategory}
+        onRemoveCategory={handleRemoveCategory}
+      />
 
-      <div className="sound-groups-grid">
-        {soundGroups.map((group, index) => (
-          <SoundGroupSquare
-            key={group.id}
-            group={group}
-            onPlayPauseClick={() => togglePlayPauseFromGroup(group)}
-            onSettingsClick={() => handleSettingsClick(index)}
-            onRenameGroup={(newName) => renameSoundGroup(index, newName)}
-            onRemoveGroup={() => removeGroup(group.id)}
-          />
-        ))}
+      {Object.entries(groupByCategory(soundGroups)).map(([category, groupsInCategory]) => (
+      <div key={category}>
+        <h2>{category}</h2> {/* Display the category name */}
+        <div className="sound-groups-row" style={{ marginBottom: '20px' }}> {/* Adjust styles as needed */}
+          {groupsInCategory.map((group, index) => (
+            <SoundGroupSquare
+              key={group.id}
+              group={group}
+              onPlayPauseClick={() => togglePlayPauseFromGroup(group)}
+              onSettingsClick={() => handleSettingsClick(index)}
+              onRenameGroup={(newName) => renameSoundGroup(index, newName)}
+              onRemoveGroup={() => removeGroup(group.id)}
+            />
+          ))}
+        </div>
       </div>
+    ))}
 
       <Modal
         isOpen={selectedGroupIndex !== null}

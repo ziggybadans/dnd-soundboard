@@ -7,6 +7,7 @@ const saveStateToFirestore = async (userId, soundGroups) => {
   // Prepare soundGroups for saving by removing non-serializable properties
   const preparedSoundGroups = soundGroups.map(group => ({
     ...group,
+    category: group.category,
     sounds: group.sounds.map(({ id, name, url, volume }) => ({
       id, name, url, volume // Only save these properties
     }))
