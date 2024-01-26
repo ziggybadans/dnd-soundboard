@@ -1,8 +1,12 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Howl } from "howler";
 import { v4 as uuidv4 } from "uuid";
 import { useDropzone } from "react-dropzone";
-import "./SoundGroup.css"; // Adjust the path according to your file structure
+import "./SoundGroup.css";
+import { db, storage } from "../firebaseConfig.js"; // Assuming you have setup Firebase Storage in your config
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { collection, addDoc } from "firebase/firestore";
+import { useAuth } from "../utils/AuthContext.js";
 
 const SoundGroup = ({
   group,
@@ -14,29 +18,40 @@ const SoundGroup = ({
   onAddSound,
   onRemoveSound,
 }) => {
-  // Function to handle files dropped into the dropzone
+  const { currentUser } = useAuth();
+  // You can access user ID using currentUser.uid
+  const userId = currentUser ? currentUser.uid : null;
+
   const onDrop = (acceptedFiles) => {
     acceptedFiles.forEach((file) => {
-      // Handle file drop
-      const reader = new FileReader();
-      reader.onload = () => {
-        // Create Howl instance and update state
-        const audioSrc = URL.createObjectURL(new Blob([reader.result]));
-        const newSound = {
-          id: uuidv4(),
-          name: file.name,
-          howl: new Howl({
-            src: [audioSrc],
-            format: ["mp3", "ogg", "wav"],
-            volume: group.groupVolume,
-          }),
-          volume: 1,
-        };
-
-        onAddSound(newSound); // Update the parent state with the new sound
-      };
-      // Read in file as ArrayBuffer
-      reader.readAsArrayBuffer(file);
+      const fileRef = ref(storage, `sounds/${userId}/${file.name}`);
+      uploadBytes(fileRef, file).then((snapshot) => {
+        getDownloadURL(snapshot.ref)
+          .then((downloadURL) => {
+            const soundData = {
+              name: file.name,
+              url: downloadURL,
+              volume: 1,
+            };
+            addDoc(collection(db, "users", userId, "sounds"), soundData)
+              .then(() => {
+                const newSound = {
+                  ...soundData,
+                  id: uuidv4(),
+                  howl: new Howl({
+                    src: [downloadURL],
+                    format: ["mp3", "ogg", "wav"],
+                    volume: soundData.volume,
+                  }),
+                };
+                onAddSound(newSound);
+              })
+              .catch((error) =>
+                console.error("Error saving sound in Firestore", error)
+              );
+          })
+          .catch((error) => console.error("Error uploading file", error));
+      });
     });
   };
 

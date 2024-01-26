@@ -1,9 +1,13 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Modal from "react-modal";
 import { v4 as uuidv4 } from "uuid";
 import SoundGroup from "./SoundGroup";
 import SoundGroupSquare from "./SoundGroupSquare";
 import "./Soundboard.css";
+import {
+  saveStateToFirestore,
+} from "../state/StateRestoration";
+import { useAuth } from "../utils/AuthContext";
 
 const Soundboard = () => {
   const [soundGroups, setSoundGroups] = useState([]);
@@ -11,6 +15,17 @@ const Soundboard = () => {
   const [currentlyPlaying, setCurrentlyPlaying] = useState({});
 
   const [globalVolume, setGlobalVolume] = useState(1); // Default global volume
+
+  const { currentUser } = useAuth();
+  // You can access user ID using currentUser.uid
+  const userId = currentUser && currentUser.uid;
+
+  // Save state when `soundGroups` or `globalVolume` changes
+  useEffect(() => {
+    if (userId) {
+      saveStateToFirestore(userId, { soundGroups });
+    }
+  }, [soundGroups, userId]);
 
   // Global update of group volumes when global volume is adjusted
   const updateAllGroupVolumes = (volume) => {
