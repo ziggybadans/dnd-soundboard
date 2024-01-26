@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth } from '../firebaseConfig';
 import { useAuth } from "../utils/AuthContext.js";
 
@@ -24,6 +24,18 @@ const SignIn = () => {
     } catch (err) {
       console.error('Error authenticating user:', err);
       setFeedback(err.message);
+    }
+  };
+
+  // Logout function
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      console.log('User signed out');
+      setFeedback('Signed out successfully!');
+    } catch (error) {
+      console.error('Error signing out:', error);
+      setFeedback(error.message);
     }
   };
 
@@ -54,6 +66,10 @@ const SignIn = () => {
       <button onClick={toggleForm}>
         {isSignIn ? 'Need to register?' : 'Already have an account?'}
       </button>
+
+      {currentUser && (
+        <button onClick={handleLogout}>Logout</button>
+      )}
     </div>
   );
 }

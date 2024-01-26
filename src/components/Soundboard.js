@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from "react";
 import Modal from "react-modal";
+import { Howl } from "howler";
 import { v4 as uuidv4 } from "uuid";
 import SoundGroup from "./SoundGroup";
 import SoundGroupSquare from "./SoundGroupSquare";
 import "./Soundboard.css";
 import {
   saveStateToFirestore,
+  loadStateFromFirestore,
 } from "../state/StateRestoration";
 import { useAuth } from "../utils/AuthContext";
 
@@ -20,12 +22,49 @@ const Soundboard = () => {
   // You can access user ID using currentUser.uid
   const userId = currentUser && currentUser.uid;
 
+// In Soundboard.js, adjusted useEffect for loading
+
+useEffect(() => {
+  if (currentUser) {
+    const userId = currentUser.uid;
+    loadStateFromFirestore(userId)
+      .then((loadedData) => {
+        if (!loadedData) {
+          console.log('No data returned from Firestore');
+          return;
+        }
+        
+        // Ensure loadedData is an array, as expected.
+        if(Array.isArray(loadedData)) {
+          const groupsWithHowls = loadedData.map((group) => ({
+            ...group,
+            sounds: group.sounds.map((sound) => ({
+              ...sound,
+              howl: new Howl({
+                src: [sound.url],
+                volume: sound.volume,
+                // Other Howl properties as needed
+              }),
+            })),
+          }));
+          setSoundGroups(groupsWithHowls);
+        } else {
+          // If data is not as expected, log or handle accordingly
+          console.warn('Unexpected data structure:', loadedData);
+        }
+      })
+      .catch((error) => {
+        console.error('Error loading state from Firestore:', error);
+      });
+  }
+}, [currentUser]);
+
   // Save state when `soundGroups` or `globalVolume` changes
   useEffect(() => {
     if (userId) {
-      saveStateToFirestore(userId, { soundGroups });
+      saveStateToFirestore(userId, soundGroups);
     }
-  }, [soundGroups, userId]);
+  }, [soundGroups]);
 
   // Global update of group volumes when global volume is adjusted
   const updateAllGroupVolumes = (volume) => {
