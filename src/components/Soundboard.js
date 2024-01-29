@@ -16,6 +16,7 @@ import { useAuth } from "../utils/AuthContext";
 import { storage } from "../firebaseConfig"; // Assuming storage is exported from firebaseConfig
 import { ref, deleteObject } from "firebase/storage";
 import Carousel from "./Carousel.js";
+import { initializeSounds } from "../state/Sounds.js";
 
 const Soundboard = () => {
   const [soundGroups, setSoundGroups] = useState([]);
@@ -31,17 +32,36 @@ const Soundboard = () => {
   const [scenes, setScenes] = useState({});
   const [currentScene, setCurrentScene] = useState(null);
 
-  const [globalVolume, setGlobalVolume] = useState(1); // Default global volume
+  const [globalVolume, setGlobalVolume] = useState(1);
 
   const { currentUser } = useAuth();
-  // You can access user ID using currentUser.uid
   const userId = currentUser && currentUser.uid;
 
-  // In Soundboard.js, adjusted useEffect for loading
 
   useEffect(() => {
     if (currentUser) {
       const userId = currentUser.uid;
+
+      loadSceneByIdFromFirestore(userId, 'defaultScene').then((defaultScene) => {
+        if (defaultScene) {
+          // Load the default scene if it exists
+          sceneToState(defaultScene);
+          setCurrentScene('defaultScene');
+        } else {
+          // If the default scene doesn't exist, create one
+          const newDefaultScene = defaultSceneData(); // Use the helper function to generate the default scene structure
+          setScenes({ ...scenes, defaultScene: newDefaultScene });
+          sceneToState(newDefaultScene);
+          setCurrentScene('defaultScene');
+          // Also, save the new default scene to Firestore
+          saveSceneToFirestore(userId, 'defaultScene', newDefaultScene).then(() => {
+            console.log('Default scene created and saved to Firestore.');
+          });
+        }
+      }).catch((error) => {
+        console.error("Error loading the default scene:", error);
+      });
+
       loadStateFromFirestore(userId)
         .then((loadedCategories) => {
           if (!loadedCategories) {
@@ -52,7 +72,6 @@ const Soundboard = () => {
           const newSoundGroups = [];
           const newCategories = [];
 
-          // Convert loaded categories back to sound groups
           Object.entries(loadedCategories).forEach(
             ([categoryName, soundGroups]) => {
               newCategories.push(categoryName);
@@ -89,7 +108,6 @@ const Soundboard = () => {
     }
   }, [currentUser]);
 
-  // Save state when `soundGroups` or `globalVolume` changes
   useEffect(() => {
     if (userId && soundGroups.length > 0) {
       const groupedByCategory = groupByCategory(soundGroups);
@@ -129,6 +147,17 @@ const Soundboard = () => {
       })),
     }));
 
+    for (const group of newSoundGroups) {
+      for (const sound of group.sounds) {
+        const originalSound = scene.soundGroups
+          .find((ogGroup) => ogGroup.id === group.id)
+          .sounds.find((ogSound) => ogSound.id === sound.id);
+        if (originalSound) {
+          sound.name = originalSound.name;
+        }
+      }
+    }
+
     setSoundGroups(newSoundGroups);
     setCategories(scene.categories);
     setGlobalVolume(scene.globalVolume);
@@ -138,8 +167,6 @@ const Soundboard = () => {
     const sceneId = uuidv4();
     const newScene = stateToScene();
     setScenes({ ...scenes, [sceneId]: newScene });
-
-    // Save the new scene to Firestore
     await saveSceneToFirestore(currentUser.uid, sceneId, newScene);
   };
 
@@ -153,10 +180,7 @@ const Soundboard = () => {
   const loadScene = (sceneId) => {
     const sceneState = scenes[sceneId];
     if (sceneState) {
-      setSoundGroups(sceneState.soundGroups);
-      setCategories(sceneState.categories);
-      setGlobalVolume(sceneState.globalVolume);
-      // Set the current scene ID
+      sceneToState(sceneState);
       setCurrentScene(sceneId);
     }
   };
@@ -171,7 +195,6 @@ const Soundboard = () => {
       });
   };
 
-  // Global update of group volumes when global volume is adjusted
   const updateAllGroupVolumes = (volume) => {
     setGlobalVolume(volume);
 
@@ -179,7 +202,6 @@ const Soundboard = () => {
       prevGroups.map((group) => {
         group.sounds.forEach((sound) => {
           if (sound.howl.playing()) {
-            // Adjust each sound's volume considering both the global and group volumes
             sound.howl.volume(sound.volume * group.groupVolume * volume);
           }
         });
@@ -188,29 +210,25 @@ const Soundboard = () => {
     );
   };
 
-  // Add a new sound group
   const addSoundGroup = (category) => {
-    // Create a new group with a unique ID and a default name
     const newGroup = {
       id: uuidv4(),
       name: `Group ${soundGroups.length + 1}`,
-      sounds: [], // Initial sounds inside the group
-      groupVolume: 1, // Default group volume
-      fadeDuration: 1000, // Default fade duration
+      sounds: [],
+      groupVolume: 1,
+      fadeDuration: 1000,
       category: category,
     };
     setSoundGroups([...soundGroups, newGroup]);
   };
 
-  // Set the volume for an entire sound group
   const updateGroupVolume = (groupIndex, volume) => {
     setSoundGroups((prevGroups) =>
       prevGroups.map((group, idx) => {
         if (idx === groupIndex) {
-          // Set Howl volume if the sounds are playing
           group.sounds.forEach((sound) => {
             if (sound.howl.playing()) {
-              sound.howl.volume(sound.volume * volume); // Update the Howl volume here
+              sound.howl.volume(sound.volume * volume);
             }
           });
           return { ...group, groupVolume: volume };
@@ -220,7 +238,6 @@ const Soundboard = () => {
     );
   };
 
-  // Set the fade duration for an entire sound group
   const updateFadeDuration = (index, duration) => {
     setSoundGroups((prevGroups) =>
       prevGroups.map((group, idx) =>
@@ -229,16 +246,14 @@ const Soundboard = () => {
     );
   };
 
-  // Update an individual sound's volume within a group
   const updateSoundVolume = (groupIndex, soundId, volume) => {
     setSoundGroups((prevGroups) =>
       prevGroups.map((group, idx) => {
         if (idx === groupIndex) {
           const updatedSounds = group.sounds.map((sound) => {
             if (sound.id === soundId) {
-              // Set Howl volume if the sound is playing
               if (sound.howl.playing()) {
-                sound.howl.volume(volume * group.groupVolume); // Update the Howl volume here
+                sound.howl.volume(volume * group.groupVolume);
               }
               return { ...sound, volume: volume };
             }
@@ -251,7 +266,6 @@ const Soundboard = () => {
     );
   };
 
-  // Add a sound to a specified sound group
   const addSoundToGroup = (groupIndex, newSound) => {
     setSoundGroups((prevGroups) =>
       prevGroups.map((group, idx) =>
@@ -262,12 +276,11 @@ const Soundboard = () => {
     );
   };
 
-  // Remove a sound from a specified sound group
   const removeSoundFromGroup = (groupIndex, soundId) => {
     const group = soundGroups[groupIndex];
     const sound = group.sounds.find((s) => s.id === soundId);
     if (sound) {
-      const soundRef = ref(storage, sound.url); // sound.url should be the path to the file in storage
+      const soundRef = ref(storage, sound.url);
       deleteObject(soundRef)
         .then(() => {
           console.log(`File deleted successfully: ${sound.url}`);
@@ -290,9 +303,7 @@ const Soundboard = () => {
     );
   };
 
-  // Function to play or pause a random sound from a group
   const togglePlayPauseFromGroup = (group) => {
-    // Check if there is a currently playing sound, and if so, pause it
     if (currentlyPlaying[group.id]) {
       const playingSound = group.sounds.find(
         (sound) => sound.id === currentlyPlaying[group.id]
@@ -306,39 +317,32 @@ const Soundboard = () => {
         setTimeout(() => {
           playingSound.howl.pause();
         }, group.fadeDuration);
-        // Remove the playing sound from the currently playing state
         setCurrentlyPlaying((current) => ({ ...current, [group.id]: null }));
-        return; // We're done since we paused a playing sound
       }
     }
 
-    // If no sound is currently playing, play a new random sound
     if (group.sounds.length === 0) return;
 
-    // Get a random index to play
     const randomIndex = Math.floor(Math.random() * group.sounds.length);
     const soundToPlay = group.sounds[randomIndex];
 
-    // Play the selected sound
-    soundToPlay.howl.volume(0); // Start muted
-    soundToPlay.howl.play(); // Play the sound
+    soundToPlay.howl.volume(0);
+    soundToPlay.howl.play();
     soundToPlay.howl.fade(
       0,
       soundToPlay.volume * group.groupVolume * globalVolume,
       group.fadeDuration
-    ); // Fade in
+    );
 
-    // Update the currently playing state with the new playing sound
     setCurrentlyPlaying((current) => ({
       ...current,
       [group.id]: soundToPlay.id,
     }));
   };
 
-  // Open the settings modal for a specific sound group
   const handleSettingsClick = (groupId) => {
     const groupIndex = soundGroups.findIndex((group) => group.id === groupId);
-    setSelectedGroupIndex(groupIndex); // Store the index of the selected group
+    setSelectedGroupIndex(groupIndex);
   };
 
   const renameSoundGroup = (groupId, newName) => {
@@ -350,11 +354,9 @@ const Soundboard = () => {
   };
 
   const removeGroup = (groupId) => {
-    // Find the group to be removed
     const groupToRemove = soundGroups.find((group) => group.id === groupId);
 
     if (groupToRemove) {
-      // Stop all sounds in that group if they are playing
       groupToRemove.sounds.forEach((sound) => {
         const soundRef = ref(storage, sound.url);
         deleteObject(soundRef)
@@ -365,10 +367,9 @@ const Soundboard = () => {
         }
       });
 
-      // Remove the group from the state
       setSoundGroups(soundGroups.filter((group) => group.id !== groupId));
       setCurrentlyPlaying((current) => {
-        const { [groupId]: _, ...rest } = current; // Omit the stopped group's state
+        const { [groupId]: _, ...rest } = current;
         return rest;
       });
     }
@@ -385,36 +386,62 @@ const Soundboard = () => {
   };
 
   const handleCategorySelect = (category) => {
-    // Implement logic to add a new sound group to the selected category
     addSoundGroup(category);
   };
 
   const handleAddCategory = (newCategoryName) => {
-    // Add the new category to the list of categories if not already present
     if (!categories.includes(newCategoryName)) {
       setCategories([...categories, newCategoryName]);
     }
   };
 
   const handleRemoveCategory = (categoryToRemove) => {
-    // Optional: Confirm with the user that they want to remove the category
     if (
       window.confirm(
         `Are you sure you want to remove the category "${categoryToRemove}" and all associated sound groups?`
       )
     ) {
-      // Remove the category from the categories array
       setCategories(
         categories.filter((category) => category !== categoryToRemove)
       );
-
-      // Remove or handle sound groups associated with the removed category
-      // For instance, removing all sound groups in this category:
       setSoundGroups(
         soundGroups.filter((group) => group.category !== categoryToRemove)
       );
     }
   };
+
+  const defaultSceneData = () => ({
+    soundGroups: [
+      // Add default sound groups with properties such as id, name, sounds, groupVolume, fadeDuration, and the category they belong to.
+      // Since we don't have actual sound data, we'll use placeholders here.
+      {
+        id: uuidv4(),
+        name: "Default Music Group",
+        sounds: [], // Add default sounds here
+        groupVolume: 1,
+        fadeDuration: 1000,
+        category: "Music",
+      },
+      {
+        id: uuidv4(),
+        name: "Default SFX Group",
+        sounds: [], // Add default sounds here
+        groupVolume: 1,
+        fadeDuration: 1000,
+        category: "Sound Effects",
+      },
+      {
+        id: uuidv4(),
+        name: "Default Ambience Group",
+        sounds: [], // Add default sounds here
+        groupVolume: 1,
+        fadeDuration: 1000,
+        category: "Ambience",
+      },
+    ],
+    categories: ["Music", "Sound Effects", "Ambience"],
+    globalVolume: 1,
+  });
 
   return (
     <div className="main">
@@ -474,7 +501,6 @@ const Soundboard = () => {
               <SoundGroup
                 group={soundGroups[selectedGroupIndex]}
                 onSoundsUpdate={(sounds) => {
-                  // Update sounds in a specific group
                   const newSoundGroups = [...soundGroups];
                   newSoundGroups[selectedGroupIndex].sounds = sounds;
                   setSoundGroups(newSoundGroups);
@@ -520,10 +546,10 @@ const Soundboard = () => {
                   ? "scene-button active"
                   : "scene-button"
               }
+              disabled={currentScene === sceneId}
               onClick={() => loadScene(sceneId)}
             >
               Scene {sceneId.slice(0, 8)}{" "}
-              {/* Display a truncated version of the scene ID */}
             </button>
           ))}
         </div>

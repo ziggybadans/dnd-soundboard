@@ -1,12 +1,32 @@
 import { db } from '../firebaseConfig';
 import { doc, setDoc, getDoc, collection, getDocs } from 'firebase/firestore';
+import { initializeSounds } from './Sounds';
 
 const saveStateToFirestore = async (userId, categories) => {
   const docRef = doc(db, 'soundboardStates', userId);
 
+  const serializableCategories = {};
+  for (const [categoryName, soundGroups] of Object.entries(categories)) {
+    serializableCategories[categoryName] = soundGroups.map(group => {
+      // Return a new object with the non-serializable properties removed
+      return {
+        ...group,
+        sounds: group.sounds.map(sound => {
+          return {
+            name: sound.name, // retain other properties as needed, except 'howl'
+            url: sound.url,
+            volume: sound.volume,
+            id: sound.id,
+            // Do not include 'howl' property
+          };
+        }),
+      };
+    });
+  }
+
   // Here we assume categories is a map with category names as key and sound groups arrays as value.
   try {
-    await setDoc(docRef, { categories });
+    await setDoc(docRef, { categories: serializableCategories });
     console.log('State saved successfully');
   } catch (error) {
     console.error("Error saving state to Firestore:", error);
