@@ -41,70 +41,37 @@ const Soundboard = () => {
   useEffect(() => {
     if (currentUser) {
       const userId = currentUser.uid;
-
-      loadSceneByIdFromFirestore(userId, 'defaultScene').then((defaultScene) => {
-        if (defaultScene) {
-          // Load the default scene if it exists
-          sceneToState(defaultScene);
-          setCurrentScene('defaultScene');
-        } else {
-          // If the default scene doesn't exist, create one
-          const newDefaultScene = defaultSceneData(); // Use the helper function to generate the default scene structure
-          setScenes({ ...scenes, defaultScene: newDefaultScene });
+      loadScenesFromFirestore(userId).then((loadedScenes) => {
+        if (!loadedScenes || Object.keys(loadedScenes).length === 0) {
+          // No scenes loaded from Firestore, so create the default one
+          const newDefaultScene = defaultSceneData();
           sceneToState(newDefaultScene);
           setCurrentScene('defaultScene');
-          // Also, save the new default scene to Firestore
           saveSceneToFirestore(userId, 'defaultScene', newDefaultScene).then(() => {
+            setScenes({ 'defaultScene': newDefaultScene });
             console.log('Default scene created and saved to Firestore.');
           });
+        } else {
+          // Scenes loaded, including possibly the Default one
+          setScenes(loadedScenes);
+          if (loadedScenes['defaultScene']) {
+            // If there is a default scene, load it
+            sceneToState(loadedScenes['defaultScene']);
+            setCurrentScene('defaultScene');
+          } else {
+            // If no default scene is found amongst the loaded scenes
+            const newDefaultScene = defaultSceneData();
+            sceneToState(newDefaultScene);
+            setCurrentScene('defaultScene');
+            saveSceneToFirestore(userId, 'defaultScene', newDefaultScene).then(() => {
+              setScenes({ ...loadedScenes, 'defaultScene': newDefaultScene });
+              console.log('Default scene created and added to the sidebar.');
+            });
+          }
         }
       }).catch((error) => {
-        console.error("Error loading the default scene:", error);
+        console.error("Error loading scenes from Firestore:", error);
       });
-
-      loadStateFromFirestore(userId)
-        .then((loadedCategories) => {
-          if (!loadedCategories) {
-            console.log("No data returned from Firestore");
-            return;
-          }
-
-          const newSoundGroups = [];
-          const newCategories = [];
-
-          Object.entries(loadedCategories).forEach(
-            ([categoryName, soundGroups]) => {
-              newCategories.push(categoryName);
-              soundGroups.forEach((group) => {
-                newSoundGroups.push({
-                  ...group,
-                  category: categoryName,
-                  sounds: group.sounds.map((sound) => ({
-                    ...sound,
-                    howl: new Howl({
-                      src: [sound.url],
-                      volume: sound.volume,
-                    }),
-                  })),
-                });
-              });
-            }
-          );
-
-          setSoundGroups(newSoundGroups);
-          setCategories(newCategories);
-        })
-        .catch((error) => {
-          console.error("Error loading state from Firestore:", error);
-        });
-
-      loadScenesFromFirestore(currentUser.uid)
-        .then((loadedScenes) => {
-          setScenes(loadedScenes);
-        })
-        .catch((error) => {
-          console.error("Error loading scenes:", error);
-        });
     }
   }, [currentUser]);
 
@@ -170,10 +137,13 @@ const Soundboard = () => {
     await saveSceneToFirestore(currentUser.uid, sceneId, newScene);
   };
 
-  const updateScene = () => {
+  const updateScene = async () => {
     if (currentScene) {
       const updatedScene = stateToScene();
       setScenes({ ...scenes, [currentScene]: updatedScene });
+      // Call saveSceneToFirestore to persist the updated scene in Firestore
+      await saveSceneToFirestore(currentUser.uid, currentScene, updatedScene);
+      console.log(`Scene ${currentScene} updated successfully`);
     }
   };
 
