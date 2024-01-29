@@ -32,33 +32,35 @@ const Soundboard = () => {
     if (currentUser) {
       const userId = currentUser.uid;
       loadStateFromFirestore(userId)
-        .then((loadedData) => {
-          if (!loadedData) {
+        .then((loadedCategories) => {
+          if (!loadedCategories) {
             console.log("No data returned from Firestore");
             return;
           }
-
-          // Ensure loadedData is an array, as expected.
-          if (Array.isArray(loadedData)) {
-            const groupsWithHowls = loadedData.map((group) => ({
-              ...group,
-              sounds: group.sounds.map((sound) => ({
-                ...sound,
-                howl: new Howl({
-                  src: [sound.url],
-                  volume: sound.volume,
-                  // Other Howl properties as needed
-                }),
-              })),
-            }));
-            setSoundGroups(groupsWithHowls);
-
-            const loadedCategories = [...new Set(groupsWithHowls.map(group => group.category))];
-            setCategories(loadedCategories);
-          } else {
-            // If data is not as expected, log or handle accordingly
-            console.warn("Unexpected data structure:", loadedData);
-          }
+        
+          const newSoundGroups = [];
+          const newCategories = [];
+          
+          // Convert loaded categories back to sound groups
+          Object.entries(loadedCategories).forEach(([categoryName, soundGroups]) => {
+            newCategories.push(categoryName);
+            soundGroups.forEach(group => {
+              newSoundGroups.push({
+                ...group,
+                category: categoryName,
+                sounds: group.sounds.map(sound => ({
+                  ...sound,
+                  howl: new Howl({
+                    src: [sound.url],
+                    volume: sound.volume,
+                  }),
+                })),
+              });
+            });
+          });
+          
+          setSoundGroups(newSoundGroups);
+          setCategories(newCategories);
         })
         .catch((error) => {
           console.error("Error loading state from Firestore:", error);
@@ -68,8 +70,9 @@ const Soundboard = () => {
 
   // Save state when `soundGroups` or `globalVolume` changes
   useEffect(() => {
-    if (userId) {
-      saveStateToFirestore(userId, soundGroups);
+    if (userId && soundGroups.length > 0) {
+      const groupedByCategory = groupByCategory(soundGroups);
+      saveStateToFirestore(userId, groupedByCategory);
     }
   }, [soundGroups]);
 
