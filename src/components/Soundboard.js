@@ -8,6 +8,9 @@ import "./Soundboard.css";
 import {
   saveStateToFirestore,
   loadStateFromFirestore,
+  saveSceneToFirestore,
+  loadScenesFromFirestore,
+  loadSceneByIdFromFirestore,
 } from "../state/StateRestoration";
 import { useAuth } from "../utils/AuthContext";
 import { storage } from "../firebaseConfig"; // Assuming storage is exported from firebaseConfig
@@ -18,7 +21,15 @@ const Soundboard = () => {
   const [soundGroups, setSoundGroups] = useState([]);
   const [selectedGroupIndex, setSelectedGroupIndex] = useState(null);
   const [currentlyPlaying, setCurrentlyPlaying] = useState({});
-  const [categories, setCategories] = useState(['Music', 'Sound Effects', 'Ambience']);
+
+  const [categories, setCategories] = useState([
+    "Music",
+    "Sound Effects",
+    "Ambience",
+  ]);
+
+  const [scenes, setScenes] = useState({});
+  const [currentScene, setCurrentScene] = useState(null);
 
   const [globalVolume, setGlobalVolume] = useState(1); // Default global volume
 
@@ -37,33 +48,43 @@ const Soundboard = () => {
             console.log("No data returned from Firestore");
             return;
           }
-        
+
           const newSoundGroups = [];
           const newCategories = [];
-          
+
           // Convert loaded categories back to sound groups
-          Object.entries(loadedCategories).forEach(([categoryName, soundGroups]) => {
-            newCategories.push(categoryName);
-            soundGroups.forEach(group => {
-              newSoundGroups.push({
-                ...group,
-                category: categoryName,
-                sounds: group.sounds.map(sound => ({
-                  ...sound,
-                  howl: new Howl({
-                    src: [sound.url],
-                    volume: sound.volume,
-                  }),
-                })),
+          Object.entries(loadedCategories).forEach(
+            ([categoryName, soundGroups]) => {
+              newCategories.push(categoryName);
+              soundGroups.forEach((group) => {
+                newSoundGroups.push({
+                  ...group,
+                  category: categoryName,
+                  sounds: group.sounds.map((sound) => ({
+                    ...sound,
+                    howl: new Howl({
+                      src: [sound.url],
+                      volume: sound.volume,
+                    }),
+                  })),
+                });
               });
-            });
-          });
-          
+            }
+          );
+
           setSoundGroups(newSoundGroups);
           setCategories(newCategories);
         })
         .catch((error) => {
           console.error("Error loading state from Firestore:", error);
+        });
+
+      loadScenesFromFirestore(currentUser.uid)
+        .then((loadedScenes) => {
+          setScenes(loadedScenes);
+        })
+        .catch((error) => {
+          console.error("Error loading scenes:", error);
         });
     }
   }, [currentUser]);
@@ -75,6 +96,80 @@ const Soundboard = () => {
       saveStateToFirestore(userId, groupedByCategory);
     }
   }, [soundGroups]);
+
+  const stateToScene = () => {
+    const scene = {
+      soundGroups: soundGroups.map((group) => ({
+        id: group.id,
+        name: group.name,
+        sounds: group.sounds.map((sound) => ({
+          id: sound.id,
+          url: sound.url,
+          volume: sound.volume,
+        })),
+        groupVolume: group.groupVolume,
+        fadeDuration: group.fadeDuration,
+        category: group.category,
+      })),
+      categories: categories,
+      globalVolume: globalVolume,
+    };
+    return scene;
+  };
+
+  const sceneToState = (scene) => {
+    const newSoundGroups = scene.soundGroups.map((group) => ({
+      ...group,
+      sounds: group.sounds.map((sound) => ({
+        ...sound,
+        howl: new Howl({
+          src: [sound.url],
+          volume: sound.volume,
+        }),
+      })),
+    }));
+
+    setSoundGroups(newSoundGroups);
+    setCategories(scene.categories);
+    setGlobalVolume(scene.globalVolume);
+  };
+
+  const createNewScene = async () => {
+    const sceneId = uuidv4();
+    const newScene = stateToScene();
+    setScenes({ ...scenes, [sceneId]: newScene });
+
+    // Save the new scene to Firestore
+    await saveSceneToFirestore(currentUser.uid, sceneId, newScene);
+  };
+
+  const updateScene = () => {
+    if (currentScene) {
+      const updatedScene = stateToScene();
+      setScenes({ ...scenes, [currentScene]: updatedScene });
+    }
+  };
+
+  const loadScene = (sceneId) => {
+    const sceneState = scenes[sceneId];
+    if (sceneState) {
+      setSoundGroups(sceneState.soundGroups);
+      setCategories(sceneState.categories);
+      setGlobalVolume(sceneState.globalVolume);
+      // Set the current scene ID
+      setCurrentScene(sceneId);
+    }
+  };
+
+  const loadAllScenes = () => {
+    loadScenesFromFirestore(currentUser.uid)
+      .then((loadedScenes) => {
+        setScenes(loadedScenes);
+      })
+      .catch((error) => {
+        console.error("Error loading scenes:", error);
+      });
+  };
 
   // Global update of group volumes when global volume is adjusted
   const updateAllGroupVolumes = (volume) => {
@@ -241,14 +336,15 @@ const Soundboard = () => {
   };
 
   // Open the settings modal for a specific sound group
-  const handleSettingsClick = (index) => {
-    setSelectedGroupIndex(index); // Store the index of the selected group
+  const handleSettingsClick = (groupId) => {
+    const groupIndex = soundGroups.findIndex((group) => group.id === groupId);
+    setSelectedGroupIndex(groupIndex); // Store the index of the selected group
   };
 
-  const renameSoundGroup = (groupIndex, newName) => {
+  const renameSoundGroup = (groupId, newName) => {
     setSoundGroups((currentGroups) =>
-      currentGroups.map((group, index) =>
-        index === groupIndex ? { ...group, name: newName } : group
+      currentGroups.map((group) =>
+        group.id === groupId ? { ...group, name: newName } : group
       )
     );
   };
@@ -302,90 +398,136 @@ const Soundboard = () => {
 
   const handleRemoveCategory = (categoryToRemove) => {
     // Optional: Confirm with the user that they want to remove the category
-    if (window.confirm(`Are you sure you want to remove the category "${categoryToRemove}" and all associated sound groups?`)) {
+    if (
+      window.confirm(
+        `Are you sure you want to remove the category "${categoryToRemove}" and all associated sound groups?`
+      )
+    ) {
       // Remove the category from the categories array
-      setCategories(categories.filter(category => category !== categoryToRemove));
-      
+      setCategories(
+        categories.filter((category) => category !== categoryToRemove)
+      );
+
       // Remove or handle sound groups associated with the removed category
       // For instance, removing all sound groups in this category:
-      setSoundGroups(soundGroups.filter(group => group.category !== categoryToRemove));
+      setSoundGroups(
+        soundGroups.filter((group) => group.category !== categoryToRemove)
+      );
     }
   };
 
   return (
-    <div className="soundboard">
-      <div className="global-controls">
-        <div>
-          <label>Global Volume: {Math.round(globalVolume * 100)}%</label>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            value={globalVolume}
-            onChange={(e) => updateAllGroupVolumes(Number(e.target.value))}
+    <div className="main">
+      <div className="soundboard">
+        <div className="global-controls">
+          <div>
+            <label>Global Volume: {Math.round(globalVolume * 100)}%</label>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={globalVolume}
+              onChange={(e) => updateAllGroupVolumes(Number(e.target.value))}
+            />
+          </div>
+        </div>
+
+        <div className="category-container">
+          <Carousel
+            categories={categories}
+            onCategorySelect={handleCategorySelect}
+            onAddCategory={handleAddCategory}
+            onRemoveCategory={handleRemoveCategory}
           />
         </div>
-      </div>
-      <Carousel
-        categories={categories}
-        onCategorySelect={handleCategorySelect}
-        onAddCategory={handleAddCategory}
-        onRemoveCategory={handleRemoveCategory}
-      />
 
-      {Object.entries(groupByCategory(soundGroups)).map(([category, groupsInCategory]) => (
-      <div key={category}>
-        <h2>{category}</h2> {/* Display the category name */}
-        <div className="sound-groups-row" style={{ marginBottom: '20px' }}> {/* Adjust styles as needed */}
-          {groupsInCategory.map((group, index) => (
-            <SoundGroupSquare
-              key={group.id}
-              group={group}
-              onPlayPauseClick={() => togglePlayPauseFromGroup(group)}
-              onSettingsClick={() => handleSettingsClick(index)}
-              onRenameGroup={(newName) => renameSoundGroup(index, newName)}
-              onRemoveGroup={() => removeGroup(group.id)}
-            />
+        <div className="sound-groups-panel">
+          {Object.entries(groupByCategory(soundGroups)).map(
+            ([category, groupsInCategory]) => (
+              <div key={category} className="sound-group">
+                <h2 className="sound-group-title">{category}</h2>
+                <div className="sound-group-grid">
+                  {groupsInCategory.map((group, index) => (
+                    <SoundGroupSquare
+                      key={group.id}
+                      group={group}
+                      onPlayPauseClick={() => togglePlayPauseFromGroup(group)}
+                      onSettingsClick={() => handleSettingsClick(group.id)}
+                      onRenameGroup={(newName) =>
+                        renameSoundGroup(group.id, newName)
+                      }
+                      onRemoveGroup={() => removeGroup(group.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )
+          )}
+          <Modal
+            isOpen={selectedGroupIndex !== null}
+            onRequestClose={() => setSelectedGroupIndex(null)}
+            contentLabel="Sound Group Controls"
+            ariaHideApp={false}
+          >
+            {selectedGroupIndex !== null && soundGroups[selectedGroupIndex] && (
+              <SoundGroup
+                group={soundGroups[selectedGroupIndex]}
+                onSoundsUpdate={(sounds) => {
+                  // Update sounds in a specific group
+                  const newSoundGroups = [...soundGroups];
+                  newSoundGroups[selectedGroupIndex].sounds = sounds;
+                  setSoundGroups(newSoundGroups);
+                }}
+                onGroupVolumeChange={(volume) => {
+                  updateGroupVolume(selectedGroupIndex, volume);
+                }}
+                onFadeDurationChange={(duration) => {
+                  updateFadeDuration(selectedGroupIndex, duration);
+                }}
+                onSoundVolumeChange={(soundId, volume) => {
+                  updateSoundVolume(selectedGroupIndex, soundId, volume);
+                }}
+                onAddSound={(newSound) => {
+                  addSoundToGroup(selectedGroupIndex, newSound);
+                }}
+                onRemoveSound={(soundId) => {
+                  removeSoundFromGroup(selectedGroupIndex, soundId);
+                }}
+                closeModal={() => setSelectedGroupIndex(null)}
+              />
+            )}
+          </Modal>
+        </div>
+      </div>
+      <div className="scene-sidebar">
+        <div className="scene-management">
+          <h3>Scenes</h3>
+          <div>
+            <button onClick={createNewScene}>New Scene</button>
+            <button onClick={updateScene} disabled={!currentScene}>
+              Save Scene
+            </button>
+          </div>
+        </div>
+
+        <div className="scenes">
+          {Object.keys(scenes).map((sceneId) => (
+            <button
+              key={sceneId}
+              className={
+                currentScene === sceneId
+                  ? "scene-button active"
+                  : "scene-button"
+              }
+              onClick={() => loadScene(sceneId)}
+            >
+              Scene {sceneId.slice(0, 8)}{" "}
+              {/* Display a truncated version of the scene ID */}
+            </button>
           ))}
         </div>
       </div>
-    ))}
-
-      <Modal
-        isOpen={selectedGroupIndex !== null}
-        onRequestClose={() => setSelectedGroupIndex(null)}
-        contentLabel="Sound Group Controls"
-        ariaHideApp={false}
-      >
-        {selectedGroupIndex !== null && soundGroups[selectedGroupIndex] && (
-          <SoundGroup
-            group={soundGroups[selectedGroupIndex]}
-            onSoundsUpdate={(sounds) => {
-              // Update sounds in a specific group
-              const newSoundGroups = [...soundGroups];
-              newSoundGroups[selectedGroupIndex].sounds = sounds;
-              setSoundGroups(newSoundGroups);
-            }}
-            onGroupVolumeChange={(volume) => {
-              updateGroupVolume(selectedGroupIndex, volume);
-            }}
-            onFadeDurationChange={(duration) => {
-              updateFadeDuration(selectedGroupIndex, duration);
-            }}
-            onSoundVolumeChange={(soundId, volume) => {
-              updateSoundVolume(selectedGroupIndex, soundId, volume);
-            }}
-            onAddSound={(newSound) => {
-              addSoundToGroup(selectedGroupIndex, newSound);
-            }}
-            onRemoveSound={(soundId) => {
-              removeSoundFromGroup(selectedGroupIndex, soundId);
-            }}
-            closeModal={() => setSelectedGroupIndex(null)}
-          />
-        )}
-      </Modal>
     </div>
   );
 };

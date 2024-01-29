@@ -1,7 +1,6 @@
-// Inside Carousel.js
-
 import React, { useState } from "react";
 import "./Carousel.css";
+import { FiX } from "react-icons/fi";
 
 const Carousel = ({
   categories,
@@ -28,13 +27,13 @@ const Carousel = ({
     <div className="carousel-container">
       {categories.map((category) => (
         <div key={category} className="carousel-item">
-          <span onClick={() => onCategorySelect(category)}>Add {category}</span>
+          <span onClick={() => onCategorySelect(category)} className="category-name">Add {category}</span>
           <span
             className="remove-category"
             onClick={() => onRemoveCategory(category)}
             title="Remove category"
           >
-            X
+            <FiX />
           </span>
         </div>
       ))}

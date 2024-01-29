@@ -1,14 +1,53 @@
+.main {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
 .soundboard {
-    padding: 20px;
-  }
-  
-  .global-controls {
-    margin-bottom: 30px;
-  }
-  
-  .sound-groups-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    grid-gap: 20px;
-    justify-content: center;
-  }
+    gap: 20px;
+    flex: 1 0 auto;
+    margin-right: 14px;
+}
+
+.global-controls {
+}
+
+.sound-group-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-gap: 20px;
+}
+
+.sound-group {
+    text-align: left;
+}
+
+.sound-groups-panel {
+}
+
+.category-container {
+}
+
+.scene-sidebar {
+    background-color: rgb(147, 147, 147);
+    padding: 20px;
+    border-radius: 10px;
+    display: grid;
+}
+
+.scene-management {
+    display: flex;
+    justify-content: space-between;
+    gap: 5px;
+    align-items: center;
+    margin-bottom: 40px;
+    align-content: center;
+}
+
+.scenes {
+    display: grid;
+    gap: 10px;
+    align-items: center;
+}

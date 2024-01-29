@@ -7,7 +7,7 @@ function App() {
   return (
     <div className="App">
       <header className="App-header">
-        <h1>D&D Soundboard</h1>
+        <h1 className="App-title">Echomyst</h1>
         <SignIn/>
       </header>
       <main className='App-content'>

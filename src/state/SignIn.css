@@ -1,0 +1,11 @@
+.sign-in-div {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-right: 10px;
+}
+
+.sign-in-div > div {
+    display: flex;
+    gap: 5px;
+}
