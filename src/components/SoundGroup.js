@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import { useDropzone } from "react-dropzone";
 import "./SoundGroup.css";
 import { db, storage } from "../firebaseConfig.js"; // Assuming you have setup Firebase Storage in your config
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { collection, addDoc } from "firebase/firestore";
 import { useAuth } from "../utils/AuthContext.js";
 
@@ -22,19 +22,53 @@ const SoundGroup = ({
   // You can access user ID using currentUser.uid
   const userId = currentUser ? currentUser.uid : null;
 
+  const [uploadProgresses, setUploadProgresses] = useState({});
+  const [uploads, setUploads] = useState({});
+
   const onDrop = (acceptedFiles) => {
     acceptedFiles.forEach((file) => {
+      const uniqueFileId = uuidv4();
+      setUploads((prevUploads) => ({
+        ...prevUploads,
+        [uniqueFileId]: { name: file.name, progress: 0, isUploading: true },
+      }));
+
       const fileRef = ref(storage, `sounds/${userId}/${file.name}`);
-      uploadBytes(fileRef, file).then((snapshot) => {
-        getDownloadURL(snapshot.ref)
-          .then((downloadURL) => {
+      const uploadTask = uploadBytesResumable(fileRef, file);
+
+      // Listen for state changes, errors, and completion of the upload.
+      uploadTask.on(
+        "state_changed",
+        (snapshot) => {
+          const progress =
+            (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          setUploads((prevUploads) => ({
+            ...prevUploads,
+            [uniqueFileId]: { ...prevUploads[uniqueFileId], progress },
+          }));
+        },
+        (error) => {
+          setUploads((prevUploads) => {
+            const newUploads = { ...prevUploads };
+            delete newUploads[uniqueFileId];
+            return newUploads;
+          });
+        },
+        () => {
+          setUploads((prevUploads) => {
+            const newUploads = { ...prevUploads };
+            delete newUploads[uniqueFileId];
+            return newUploads;
+          });
+          
+          getDownloadURL(uploadTask.snapshot.ref).then((downloadURL) => {
             const soundData = {
               name: file.name,
               url: downloadURL,
               volume: 1,
             };
-            addDoc(collection(db, "users", userId, "sounds"), soundData)
-              .then(() => {
+            addDoc(collection(db, "users", userId, "sounds"), soundData).then(
+              () => {
                 const newSound = {
                   ...soundData,
                   id: uuidv4(),
@@ -45,13 +79,16 @@ const SoundGroup = ({
                   }),
                 };
                 onAddSound(newSound);
-              })
-              .catch((error) =>
-                console.error("Error saving sound in Firestore", error)
-              );
-          })
-          .catch((error) => console.error("Error uploading file", error));
-      });
+                setUploadProgresses((prevProgresses) => {
+                  const updatedProgresses = { ...prevProgresses };
+                  delete updatedProgresses[uniqueFileId];
+                  return updatedProgresses;
+                });
+              }
+            );
+          });
+        }
+      );
     });
   };
 
@@ -138,28 +175,63 @@ const SoundGroup = ({
         <input {...getInputProps()} />
         <p>Drag 'n' drop some files here, or click to select files</p>
       </div>
+      <ul className="upload-list">
+        {Object.entries(uploads).map(
+          ([id, upload]) =>
+            upload.isUploading && (
+              <li key={id} className="upload-item">
+                {upload.name}
+                <div>
+                  <progress value={upload.progress} max="100"></progress>
+                  <span>{upload.progress.toFixed(0)}%</span>
+                </div>
+              </li>
+            )
+        )}
+      </ul>
       <ul className="sound-list">
-        {group.sounds.map((sound) => (
-          <li key={sound.id} className="sound-item">
-            {sound.name}
-            <button onClick={() => togglePlayPause(sound.id)}>
-              Play/Pause
-            </button>
-            <label htmlFor={`volume-${sound.id}`}>
-              Volume: {Math.round(sound.volume * 100)}%
-            </label>
-            <input
-              type="range"
-              id={`volume-${sound.id}`}
-              min="0"
-              max="1"
-              step="0.01"
-              value={sound.volume}
-              onChange={(e) => handleSoundVolumeChange(sound.id, e)}
-            />
-            <button onClick={() => removeSound(sound.id)}>Remove</button>
-          </li>
-        ))}
+        {group.sounds.map((sound) => {
+          const isUploading = uploadProgresses.hasOwnProperty(sound.id);
+
+          return (
+            <li key={sound.id} className="sound-item">
+              {sound.name}
+              <button
+                onClick={() => togglePlayPause(sound.id)}
+                disabled={isUploading}
+              >
+                Play/Pause
+              </button>
+              <label htmlFor={`volume-${sound.id}`}>
+                Volume: {Math.round(sound.volume * 100)}%
+              </label>
+              <input
+                type="range"
+                id={`volume-${sound.id}`}
+                min="0"
+                max="1"
+                step="0.01"
+                value={sound.volume}
+                onChange={(e) => handleSoundVolumeChange(sound.id, e)}
+                disabled={isUploading}
+              />
+              <button
+                onClick={() => removeSound(sound.id)}
+                disabled={isUploading}
+              >
+                Remove
+              </button>
+              {uploadProgresses[sound.id] && (
+                <div>
+                  <label>
+                    Uploading: {uploadProgresses[sound.id].toFixed(0)}%
+                  </label>
+                  <progress value={uploadProgresses[sound.id]} max="100" />
+                </div>
+              )}
+            </li>
+          );
+        })}
       </ul>
       <button onClick={closeModal}>Close</button>
     </div>

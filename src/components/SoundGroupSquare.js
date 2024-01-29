@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import "./SoundGroupSquare.css";
+import { FiTool, FiPlay, FiTrash2, FiTag } from "react-icons/fi"
 
 const SoundGroupSquare = ({
   group,
@@ -55,25 +56,25 @@ const SoundGroupSquare = ({
             className="play-pause-button"
             onClick={() => onPlayPauseClick(group)}
           >
-            Play/Pause
+            <FiPlay size={25}/>
           </button>
           <button
             className="settings-button"
             onClick={() => onSettingsClick(group)}
           >
-            Settings
+            <FiTool size={25}/>
           </button>
           <button
             className="remove-group-button"
             onClick={() => onRemoveGroup(group.id)}
           >
-            Remove Group
+            <FiTrash2 size={25}/>
           </button>
           <button
             className="rename-group-button"
             onClick={() => setIsEditing(true)}
           >
-            Rename Group
+            <FiTag size={25}/>
           </button>
         </div>
       )}

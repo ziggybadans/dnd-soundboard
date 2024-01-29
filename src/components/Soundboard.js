@@ -11,6 +11,8 @@ import {
   saveSceneToFirestore,
   loadScenesFromFirestore,
   loadSceneByIdFromFirestore,
+  deleteSceneFromFirestore,
+  renameSceneInFirestore,
 } from "../state/StateRestoration";
 import { useAuth } from "../utils/AuthContext";
 import { storage } from "../firebaseConfig"; // Assuming storage is exported from firebaseConfig
@@ -31,47 +33,57 @@ const Soundboard = () => {
 
   const [scenes, setScenes] = useState({});
   const [currentScene, setCurrentScene] = useState(null);
+  const [editingSceneId, setEditingSceneId] = useState(null);
+  const [newSceneName, setNewSceneName] = useState("");
 
   const [globalVolume, setGlobalVolume] = useState(1);
 
   const { currentUser } = useAuth();
   const userId = currentUser && currentUser.uid;
 
-
   useEffect(() => {
     if (currentUser) {
       const userId = currentUser.uid;
-      loadScenesFromFirestore(userId).then((loadedScenes) => {
-        if (!loadedScenes || Object.keys(loadedScenes).length === 0) {
-          // No scenes loaded from Firestore, so create the default one
-          const newDefaultScene = defaultSceneData();
-          sceneToState(newDefaultScene);
-          setCurrentScene('defaultScene');
-          saveSceneToFirestore(userId, 'defaultScene', newDefaultScene).then(() => {
-            setScenes({ 'defaultScene': newDefaultScene });
-            console.log('Default scene created and saved to Firestore.');
-          });
-        } else {
-          // Scenes loaded, including possibly the Default one
-          setScenes(loadedScenes);
-          if (loadedScenes['defaultScene']) {
-            // If there is a default scene, load it
-            sceneToState(loadedScenes['defaultScene']);
-            setCurrentScene('defaultScene');
-          } else {
-            // If no default scene is found amongst the loaded scenes
+      loadScenesFromFirestore(userId)
+        .then((loadedScenes) => {
+          console.log('Loaded scenes:', loadedScenes);
+          if (!loadedScenes || Object.keys(loadedScenes).length === 0) {
+            // No scenes loaded from Firestore, so create the default one
             const newDefaultScene = defaultSceneData();
             sceneToState(newDefaultScene);
-            setCurrentScene('defaultScene');
-            saveSceneToFirestore(userId, 'defaultScene', newDefaultScene).then(() => {
-              setScenes({ ...loadedScenes, 'defaultScene': newDefaultScene });
-              console.log('Default scene created and added to the sidebar.');
-            });
+            setCurrentScene("defaultScene");
+            saveSceneToFirestore(userId, "defaultScene", newDefaultScene).then(
+              () => {
+                setScenes({ defaultScene: newDefaultScene });
+                console.log("Default scene created and saved to Firestore.");
+              }
+            );
+          } else {
+            // Scenes loaded, including possibly the Default one
+            setScenes(loadedScenes);
+            if (loadedScenes["defaultScene"]) {
+              // If there is a default scene, load it
+              sceneToState(loadedScenes["defaultScene"]);
+              setCurrentScene("defaultScene");
+            } else {
+              // If no default scene is found amongst the loaded scenes
+              const newDefaultScene = defaultSceneData();
+              sceneToState(newDefaultScene);
+              setCurrentScene("defaultScene");
+              saveSceneToFirestore(
+                userId,
+                "defaultScene",
+                newDefaultScene
+              ).then(() => {
+                setScenes({ ...loadedScenes, defaultScene: newDefaultScene });
+                console.log("Default scene created and added to the sidebar.");
+              });
+            }
           }
-        }
-      }).catch((error) => {
-        console.error("Error loading scenes from Firestore:", error);
-      });
+        })
+        .catch((error) => {
+          console.error("Error loading scenes from Firestore:", error);
+        });
     }
   }, [currentUser]);
 
@@ -105,29 +117,31 @@ const Soundboard = () => {
   const sceneToState = (scene) => {
     const newSoundGroups = scene.soundGroups.map((group) => ({
       ...group,
-      sounds: group.sounds.map((sound) => ({
-        ...sound,
-        howl: new Howl({
-          src: [sound.url],
-          volume: sound.volume,
-        }),
-      })),
+      sounds: group.sounds.map((sound) => {
+        console.log(`Loading sound with ID: ${sound.id}, Name: ${sound.name}`); // This log is for debugging purposes
+        
+        return {
+          ...sound,
+          howl: new Howl({
+            src: [sound.url],
+            volume: sound.volume,
+          }),
+        };
+      }),
     }));
-
-    for (const group of newSoundGroups) {
-      for (const sound of group.sounds) {
-        const originalSound = scene.soundGroups
-          .find((ogGroup) => ogGroup.id === group.id)
-          .sounds.find((ogSound) => ogSound.id === sound.id);
-        if (originalSound) {
-          sound.name = originalSound.name;
-        }
-      }
-    }
-
+  
     setSoundGroups(newSoundGroups);
     setCategories(scene.categories);
     setGlobalVolume(scene.globalVolume);
+  };
+  
+  // Use in the context where you load scenes and convert them to state:
+  const loadScene = (sceneId) => {
+    const sceneState = scenes[sceneId];
+    if (sceneState) {
+      sceneToState(sceneState);
+      setCurrentScene(sceneId);
+    }
   };
 
   const createNewScene = async () => {
@@ -144,14 +158,6 @@ const Soundboard = () => {
       // Call saveSceneToFirestore to persist the updated scene in Firestore
       await saveSceneToFirestore(currentUser.uid, currentScene, updatedScene);
       console.log(`Scene ${currentScene} updated successfully`);
-    }
-  };
-
-  const loadScene = (sceneId) => {
-    const sceneState = scenes[sceneId];
-    if (sceneState) {
-      sceneToState(sceneState);
-      setCurrentScene(sceneId);
     }
   };
 
@@ -240,7 +246,7 @@ const Soundboard = () => {
     setSoundGroups((prevGroups) =>
       prevGroups.map((group, idx) =>
         idx === groupIndex
-          ? { ...group, sounds: [...group.sounds, newSound] }
+          ? { ...group, sounds: [...group.sounds, { ...newSound, id: uuidv4() }] } // Ensure each sound has a unique ID
           : group
       )
     );
@@ -380,13 +386,70 @@ const Soundboard = () => {
     }
   };
 
+  const deleteScene = async (sceneId) => {
+    // First, remove the scene from Firestore
+    await deleteSceneFromFirestore(currentUser.uid, sceneId);
+
+    // Next, update local state to reflect the removed scene
+    const updatedScenes = { ...scenes };
+    delete updatedScenes[sceneId]; // Remove the scene from the scenes object
+    setScenes(updatedScenes);
+
+    // Optionally, if the deleted scene is the currently selected scene, clear the selection
+    if (currentScene === sceneId) {
+      setCurrentScene(null);
+    }
+
+    console.log(`Scene ${sceneId} removed from local state`);
+  };
+
+  const renameScene = async (sceneId, newName) => {
+    if (sceneId === "defaultScene") {
+      console.log("The Default scene cannot be renamed.");
+      return;
+    }
+
+    // Update the scene name in Firestore
+    await renameSceneInFirestore(currentUser.uid, sceneId, newName);
+
+    // Update the local state with the new name
+    setScenes((prevScenes) => ({
+      ...prevScenes,
+      [sceneId]: {
+        ...prevScenes[sceneId],
+        name: newName,
+      },
+    }));
+
+    console.log(`Scene ${sceneId} renamed successfully in local state`);
+  };
+
+  const startEditing = (sceneId) => {
+    setEditingSceneId(sceneId);
+    setNewSceneName(scenes[sceneId].name);
+  };
+
+  const cancelEditing = () => {
+    setEditingSceneId(null);
+  };
+
+  const confirmRename = async () => {
+    if (editingSceneId === "defaultScene") {
+      console.error("The Default scene cannot be renamed.");
+      return;
+    }
+
+    await renameScene(editingSceneId, newSceneName); // assume renameScene is the function you implemented to rename the scene
+    setEditingSceneId(null);
+  };
+
   const defaultSceneData = () => ({
     soundGroups: [
       // Add default sound groups with properties such as id, name, sounds, groupVolume, fadeDuration, and the category they belong to.
       // Since we don't have actual sound data, we'll use placeholders here.
       {
         id: uuidv4(),
-        name: "Default Music Group",
+        name: "Default Music",
         sounds: [], // Add default sounds here
         groupVolume: 1,
         fadeDuration: 1000,
@@ -394,7 +457,7 @@ const Soundboard = () => {
       },
       {
         id: uuidv4(),
-        name: "Default SFX Group",
+        name: "Default SFX",
         sounds: [], // Add default sounds here
         groupVolume: 1,
         fadeDuration: 1000,
@@ -402,7 +465,7 @@ const Soundboard = () => {
       },
       {
         id: uuidv4(),
-        name: "Default Ambience Group",
+        name: "Default Ambience",
         sounds: [], // Add default sounds here
         groupVolume: 1,
         fadeDuration: 1000,
@@ -509,18 +572,54 @@ const Soundboard = () => {
 
         <div className="scenes">
           {Object.keys(scenes).map((sceneId) => (
-            <button
-              key={sceneId}
-              className={
-                currentScene === sceneId
-                  ? "scene-button active"
-                  : "scene-button"
-              }
-              disabled={currentScene === sceneId}
-              onClick={() => loadScene(sceneId)}
-            >
-              Scene {sceneId.slice(0, 8)}{" "}
-            </button>
+            <div key={sceneId} className="scene-item">
+              <button
+                className={
+                  currentScene === sceneId
+                    ? "scene-button active"
+                    : "scene-button"
+                }
+                disabled={currentScene === sceneId}
+                onClick={() => loadScene(sceneId)}
+              >
+                {sceneId === "defaultScene"
+                      ? "Default"
+                      : scenes[sceneId].name}
+              </button>
+              {editingSceneId === sceneId ? (
+                <React.Fragment>
+                  <input
+                    type="text"
+                    value={newSceneName}
+                    autoFocus // Automatically focus the input
+                    onChange={(e) => setNewSceneName(e.target.value)}
+                    onBlur={confirmRename} // Optionally use onBlur to confirm rename when user clicks away
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") confirmRename();
+                    }}
+                  />
+                </React.Fragment>
+              ) : (
+                <React.Fragment>
+                  <button
+                    className={
+                      currentScene === sceneId
+                        ? "scene-button active"
+                        : "scene-button"
+                    }
+                    onClick={() => {
+                      if (sceneId !== "defaultScene") startEditing(sceneId);
+                      else loadScene(sceneId);
+                    }}
+                  >
+                    Rename
+                  </button>
+                  {sceneId !== "defaultScene" && (
+                    <button onClick={() => deleteScene(sceneId)}>Delete</button>
+                  )}
+                </React.Fragment>
+              )}
+            </div>
           ))}
         </div>
       </div>
